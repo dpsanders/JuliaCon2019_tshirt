@@ -1,7 +1,7 @@
-
- # julia 1.2
+# julia 1.2
 using Luxor, ColorSchemes, Colors
-using Luxor: rotate, scale, translate
+
+using LightGraphs
 
 struct PenroseTriangle
     red::Bool # not red, more of a flag
@@ -13,30 +13,28 @@ end
 function PenroseTiling(centerpos::Point, radius, depth=4;
         type=:P3)
     triangles = PenroseTriangle[]
-    #@layer begin
-        A = centerpos
-        n = 10 # a circle of triangles 360/10 -> 36°
-        for i in 1:n
-            phi = (i - 1) * (2π / n)
-            C = A + polar(radius, phi)
-            phi = (i) * (2π / n)
-            B = A + polar(radius, phi)
-            if type == :P3
-                if i % 2 == 1
-                    triangle = PenroseTriangle(true, A, C, B)
-                else
-                    triangle = PenroseTriangle(true, A, B, C)
-                end
-            else # P2
-                if i % 2 == 1
-                    triangle = PenroseTriangle(true, B, A, C)
-                else
-                    triangle = PenroseTriangle(true, C, A, B)
-                end
+    A = centerpos
+    n = 10 # a circle of triangles 360/10 -> 36°
+    for i in 1:n
+        phi = (i - 1) * (2π / n)
+        C = A + polar(radius, phi)
+        phi = (i) * (2π / n)
+        B = A + polar(radius, phi)
+        if type == :P3
+            if i % 2 == 1
+                triangle = PenroseTriangle(true, A, C, B)
+            else
+                triangle = PenroseTriangle(true, A, B, C)
             end
-            push!(triangles, triangle)
+        else # P2
+            if i % 2 == 1
+                triangle = PenroseTriangle(true, B, A, C)
+            else
+                triangle = PenroseTriangle(true, C, A, B)
+            end
         end
-    #end
+        push!(triangles, triangle)
+    end
     for i in 1:depth
         triangles = subdivide(triangles, type=type)
     end
@@ -44,7 +42,7 @@ function PenroseTiling(centerpos::Point, radius, depth=4;
 end
 
 function subdivide(triangles;
-    type=:P3)
+        type=:P3)
     result = []
     for triangle in triangles
         A, B, C = triangle.pointA, triangle.pointB, triangle.pointC
@@ -85,29 +83,26 @@ function Base.convert(::Type{Vector{Point}},
 end
 
 function drawtiles(radius, depth, type, foregroundcolor;
-    coloringstyle=1)
+        coloringstyle=1)
 
     @layer begin
         rotate(π/2)
         juliacolors = [Luxor.julia_blue, Luxor.julia_red,Luxor.julia_purple,Luxor.julia_green]
         triangles = PenroseTiling(O, radius, depth, type=type)
 
+        ### add graph-based coloring style
         if coloringstyle==5
             g = incidence_graph(triangles)
-
-            coloring = greedy_color(g)
+            coloring = LightGraphs.perm_greedy_color(g, [1:length(triangles);])
 
             # make coloring more interesting by adding random greens:
-
             n = length(triangles)
             for i in 1:n ÷ 4
                 which = rand(1:n)
-                if 4 ∉ [coloring[x] for x in neighbors(g, which)]
-                    coloring[which] = 4
+                if 4 ∉ [coloring.colors[x] for x in neighbors(g, which)]
+                    coloring.colors[which] = 4
                 end
             end
-
-            #@show coloring
         end
 
         for (n, triangle) in enumerate(triangles)
@@ -129,7 +124,7 @@ function drawtiles(radius, depth, type, foregroundcolor;
                 elseif coloringstyle == 4
                     sethue(juliacolors[mod1(n, end)])
                 elseif coloringstyle == 5
-                    sethue(juliacolors[coloring[n]])
+                    sethue(juliacolors[coloring.colors[n]])
                 else
                     sethue(foregroundcolor)
                 end
@@ -137,6 +132,35 @@ function drawtiles(radius, depth, type, foregroundcolor;
             end
         end
     end
+end
+
+function incidence_graph(triangles)
+    n = length(triangles)
+    g = SimpleGraph(n)
+    for i in 1:n
+        for j in i+1:n
+            ti = triangles[i]
+            tj = triangles[j]
+
+            points_i = [ti.pointA, ti.pointB, ti.pointC]
+            points_j = [tj.pointA, tj.pointB, tj.pointC]
+
+            coincidental = 0
+            tol = 1e-2
+
+            for k in 1:3, l in 1:3
+                if distance(points_i[k], points_j[l]) < tol
+                    coincidental += 1
+                end
+            end
+
+            if coincidental == 2  # share edge
+                add_edge!(g, i, j)
+            end
+        end
+    end
+
+    return g
 end
 
 function makeone(w, h, fname;
@@ -189,7 +213,7 @@ end
 function makeall()
     for fc_bc_pair in (("red", "white"), ("black", "white"), ("orange", "black"), ("white", ""))
         for i in 2:6
-            for style in 1:4
+            for style in 1:5
                 makeone(512, 512, "/tmp/design-typeP2-depth$(i)-$(join(fc_bc_pair))-$(style).svg", type=:P2, depth=i, foregroundcolor=first(fc_bc_pair), backgroundcolor=last(fc_bc_pair), style=style)
             end
         end
@@ -198,92 +222,8 @@ end
 
 # makeall()
 
-#makeone(512, 512, "/tmp/design-typeP2-depth5-style4.svg", depth=5, foregroundcolor="white", style=4)
-
-triangles = PenroseTiling(Point(0, 0), 1, 4; type=:P3)
-
-n = length(triangles)
-
-M = zeros(Int, n, n)
-
-ti = triangles[1]
-tj = triangles[2]
-
-
-
-
-
-points_i = [ti.pointA, ti.pointB, ti.pointC]
-points_j = [tj.pointA, tj.pointB, tj.pointC]
-
-coincidental = 0
-tol = 1e-2
-
-for k in 1:3, l in k:3
-    if distance(points_i[k], points_j[l]) < tol
-        global coincidental += 1
-    end
-end
-
-coincidental
-
-using SimpleGraphs
-
-function incidence_graph(triangles)
-
-    n = length(triangles)
-
-    g = IntGraph(n)
-
-    for i in 1:n
-        for j in i+1:n
-            ti = triangles[i]
-            tj = triangles[j]
-
-            points_i = [ti.pointA, ti.pointB, ti.pointC]
-            points_j = [tj.pointA, tj.pointB, tj.pointC]
-
-            coincidental = 0
-            tol = 1e-2
-
-            for k in 1:3, l in 1:3
-                if distance(points_i[k], points_j[l]) < tol
-                    coincidental += 1
-                end
-            end
-
-            if coincidental == 2  # share edge
-                # M[i, j] = 1
-                add!(g, i, j)
-            end
-        end
-    end
-
-    return g
-end
-
-triangles = PenroseTiling(Point(0, 0), 1, 4; type=:P3)
-g = incidence_graph(triangles)
-
-g
-
-
-coloring = greedy_color(g, [1:n;])
-typeof(coloring)
-
-using SimpleGraphs
-
 makeone(512, 512, "/tmp/design.svg", type=:P2, depth=6, foregroundcolor="white", backgroundcolor="black", style=5)
 
 makeone(512, 512, "/tmp/design.pdf", type=:P2, depth=6, foregroundcolor="white", backgroundcolor="black", style=5)
 
-
-cd("/Users/davidsanders/Dropbox/juliacon/2019/tshirt/")
-depth = 4
-makeone(512, 512, "penrose_level_$depth.pdf", type=:P2, depth=depth, foregroundcolor="white", backgroundcolor="", style=5)
-
-triangles = PenroseTiling(Point(0, 0), 512/2, 5; type=:P3)
-
-coloring = greedy_color(g) 
-maximum(values(coloring))
-unique(values(coloring))
+makeone(512, 512, "/tmp/penrose_level_depth4.pdf", type=:P2, depth=4, foregroundcolor="white", backgroundcolor="", style=5)
